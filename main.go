@@ -1,28 +1,63 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"os"
+	"os/exec"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 type model struct {
-	choices  []string         // items on the to-do list
-	cursor   int              // which to-do list item our cursor is pointing at
-	selected map[int]struct{} // which to-do items are selected
+	programCommand string
+	programRunning bool
+	programRan     bool
+	programSuccess bool
+	programOutput  string
+}
+
+type programFinishedMessage struct {
+	programSuccess bool
+	programOutput  string
 }
 
 func initialModel() model {
 	return model{
-		// Our shopping list is a grocery list
-		choices: []string{"Buy carrots", "Buy celery", "Buy kohlrabi"},
-
-		// A map which indicates which choices are selected. We're using
-		// the  map like a mathematical set. The keys refer to the indexes
-		// of the `choices` slice, above.
-		selected: make(map[int]struct{}),
+		programCommand: "/usr/local/bin/go build",
+		programRunning: false,
+		programRan:     false,
+		programSuccess: false,
+		programOutput:  "",
 	}
+}
+
+func startProgram(m *model) {
+	go func() {
+		commandAndArgs := strings.Split(m.programCommand, " ")
+
+		var stdOut bytes.Buffer
+		var stdErr bytes.Buffer
+		runCommand := &exec.Cmd{
+			Path:   commandAndArgs[0],
+			Args:   commandAndArgs,
+			Stdout: &stdOut,
+			Stderr: &stdErr,
+		}
+
+		err := runCommand.Run()
+		message := programFinishedMessage{}
+		if err != nil {
+			message.programOutput = strings.TrimSpace(string(stdErr.Bytes()))
+			message.programSuccess = false
+		} else {
+			message.programOutput = strings.TrimSpace(string(stdOut.Bytes()))
+			message.programSuccess = true
+		}
+
+		p.Send(message)
+	}()
 }
 
 func (m model) Init() tea.Cmd {
@@ -35,36 +70,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Is it a key press?
 	case tea.KeyMsg:
-
 		// Cool, what was the actual key pressed?
 		switch msg.String() {
+
+		// Run the program
+		case "r":
+			m.programRan = false
+			if !m.programRunning {
+				m.programRunning = true
+				startProgram(&m)
+			}
+			return m, nil
 
 		// These keys should exit the program.
 		case "ctrl+c", "q":
 			return m, tea.Quit
-
-		// The "up" and "k" keys move the cursor up
-		case "up", "k":
-			if m.cursor > 0 {
-				m.cursor--
-			}
-
-		// The "down" and "j" keys move the cursor down
-		case "down", "j":
-			if m.cursor < len(m.choices)-1 {
-				m.cursor++
-			}
-
-		// The "enter" key and the spacebar (a literal space) toggle
-		// the selected state for the item that the cursor is pointing at.
-		case "enter", " ":
-			_, ok := m.selected[m.cursor]
-			if ok {
-				delete(m.selected, m.cursor)
-			} else {
-				m.selected[m.cursor] = struct{}{}
-			}
 		}
+
+	// Notification that the program finished
+	case programFinishedMessage:
+		m.programRunning = false
+		m.programSuccess = msg.programSuccess
+		m.programOutput = msg.programOutput
+		m.programRan = true
+		return m, nil
 	}
 
 	// Return the updated model to the Bubble Tea runtime for processing.
@@ -73,37 +102,36 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
-	// The header
-	s := "What should we buy at the market?\n\n"
+	s := "Program runner.\n\n"
+	s += "Press r to run the program.\n\n"
+	s += "Current command: " + m.programCommand + "\n\n"
 
-	// Iterate over our choices
-	for i, choice := range m.choices {
-
-		// Is the cursor pointing at this choice?
-		cursor := " " // no cursor
-		if m.cursor == i {
-			cursor = ">" // cursor!
-		}
-
-		// Is this choice selected?
-		checked := " " // not selected
-		if _, ok := m.selected[i]; ok {
-			checked = "x" // selected!
-		}
-
-		// Render the row
-		s += fmt.Sprintf("%s [%s] %s\n", cursor, checked, choice)
+	if m.programRunning {
+		s += "...program is running...\n"
 	}
 
-	// The footer
+	if m.programRan {
+		if m.programSuccess {
+			s += "Success!\n"
+		} else {
+			s += "Failure!\n"
+		}
+
+		if len(m.programOutput) > 0 {
+			s += "\n" + m.programOutput + "\n"
+		}
+	}
+
 	s += "\nPress q to quit.\n"
 
 	// Send the UI for rendering
 	return s
 }
 
+var p *tea.Program
+
 func main() {
-	p := tea.NewProgram(initialModel(), tea.WithAltScreen())
+	p = tea.NewProgram(initialModel(), tea.WithAltScreen())
 	if err := p.Start(); err != nil {
 		fmt.Printf("Alas, there's been an error: %v", err)
 		os.Exit(1)
