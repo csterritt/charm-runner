@@ -2,7 +2,10 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
@@ -10,12 +13,41 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// Application constants, defining host, port, and protocol.
+const (
+	debugListenerHost = "localhost"
+	debugListenerPort = "21212"
+	debugListenerType = "tcp"
+)
+
+func dumpStringToDebugListener(output string) {
+	conn, err := net.Dial(debugListenerType, debugListenerHost+":"+debugListenerPort)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	// Send to socket connection.
+	_, _ = conn.Write([]byte(output + "\n"))
+}
+
+type configuration struct {
+	Name     string
+	Commands []programState
+}
+
+type programState struct {
+	ProgramCommand string `json:"programCommand"`
+	ProgramRunning bool
+	ProgramRan     bool
+	ProgramSuccess bool
+	ProgramOutput  string
+}
+
 type model struct {
-	programCommand string
-	programRunning bool
-	programRan     bool
-	programSuccess bool
-	programOutput  string
+	err             error
+	waitingOnConfig bool
+	programs        []programState
 }
 
 type programFinishedMessage struct {
@@ -23,19 +55,44 @@ type programFinishedMessage struct {
 	programOutput  string
 }
 
+var globalError error
+
+func loadConfigFile() tea.Msg {
+	dumpStringToDebugListener("Entering loadConfigFile...")
+	file, err := ioutil.ReadFile("config.json")
+
+	if err != nil {
+		dumpStringToDebugListener(fmt.Sprintln("... err on reading config.json is", err))
+		return errMsg{err}
+	}
+
+	var data configuration
+	err = json.Unmarshal([]byte(file), &data)
+
+	if err != nil {
+		dumpStringToDebugListener(fmt.Sprintln("... err on unmarshalling json is", err))
+		return errMsg{err}
+	}
+
+	return data
+}
+
+type errMsg struct{ err error }
+
+// For messages that contain errors it's often handy to also implement the
+// error interface on the message.
+func (e errMsg) Error() string { return e.err.Error() }
+
 func initialModel() model {
 	return model{
-		programCommand: "/usr/local/bin/go build",
-		programRunning: false,
-		programRan:     false,
-		programSuccess: false,
-		programOutput:  "",
+		waitingOnConfig: true,
+		programs:        make([]programState, 0),
 	}
 }
 
-func startProgram(m *model) {
+func startProgram(m *programState) {
 	go func() {
-		commandAndArgs := strings.Split(m.programCommand, " ")
+		commandAndArgs := strings.Split(m.ProgramCommand, " ")
 
 		var stdOut bytes.Buffer
 		var stdErr bytes.Buffer
@@ -61,39 +118,44 @@ func startProgram(m *model) {
 }
 
 func (m model) Init() tea.Cmd {
-	// Just return `nil`, which means "no I/O right now, please."
-	return nil
+	return loadConfigFile
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+
+	case configuration:
+		m.waitingOnConfig = false
+		m.programs = msg.Commands
+		return m, nil
+
+	case errMsg:
+		dumpStringToDebugListener(fmt.Sprintln("... update got an errMsg with error", msg))
+		globalError = msg
+		return m, tea.Quit
 
 	// Is it a key press?
 	case tea.KeyMsg:
 		// Cool, what was the actual key pressed?
 		switch msg.String() {
 
-		// Run the program
-		case "r":
-			m.programRan = false
-			if !m.programRunning {
-				m.programRunning = true
-				startProgram(&m)
-			}
-			return m, nil
-
-		// These keys should exit the program.
+		// Exit the program.
 		case "ctrl+c", "q":
 			return m, tea.Quit
+
+		// Reload the configuration file
+		case "r":
+			dumpStringToDebugListener(fmt.Sprintf("Model is %#v\n", m))
+			return m, nil
 		}
 
-	// Notification that the program finished
-	case programFinishedMessage:
-		m.programRunning = false
-		m.programSuccess = msg.programSuccess
-		m.programOutput = msg.programOutput
-		m.programRan = true
-		return m, nil
+		// Notification that the program finished
+		//case programFinishedMessage:
+		//	m.programRunning = false
+		//	m.programSuccess = msg.programSuccess
+		//	m.programOutput = msg.programOutput
+		//	m.programRan = true
+		//	return m, nil
 	}
 
 	// Return the updated model to the Bubble Tea runtime for processing.
@@ -102,27 +164,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
-	s := "Program runner.\n\n"
-	s += "Press r to run the program.\n\n"
-	s += "Current command: " + m.programCommand + "\n\n"
+	s := "Program runner.\n\nPress q to quit.\n\nPress r to reload the configuration.\n\n"
 
-	if m.programRunning {
-		s += "...program is running...\n"
+	if m.err != nil {
+		s += "Error found: " + m.err.Error()
 	}
-
-	if m.programRan {
-		if m.programSuccess {
-			s += "Success!\n"
-		} else {
-			s += "Failure!\n"
-		}
-
-		if len(m.programOutput) > 0 {
-			s += "\n" + m.programOutput + "\n"
-		}
-	}
-
-	s += "\nPress q to quit.\n"
 
 	// Send the UI for rendering
 	return s
@@ -131,9 +177,17 @@ func (m model) View() string {
 var p *tea.Program
 
 func main() {
-	p = tea.NewProgram(initialModel(), tea.WithAltScreen())
+	model := initialModel()
+	p = tea.NewProgram(model, tea.WithAltScreen())
 	if err := p.Start(); err != nil {
-		fmt.Printf("Alas, there's been an error: %v", err)
+		dumpStringToDebugListener(fmt.Sprintf("Alas, there's been an error: %v", err))
+		fmt.Printf("Alas, there's been an error: %v\n", err)
 		os.Exit(1)
 	}
+	if globalError != nil {
+		dumpStringToDebugListener(fmt.Sprintf("Alas, there's been an error: %v", globalError))
+		fmt.Printf("Alas, there's been an error: %v\n", globalError)
+		os.Exit(1)
+	}
+	fmt.Println("Done!")
 }

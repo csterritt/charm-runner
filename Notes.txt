@@ -1,0 +1,26 @@
+Currently:
+    Program runner.
+
+    Press r to run the program.
+
+    Current command: /usr/local/bin/go build
+
+
+    Press q to quit.
+
+Next:
+    Program runner.
+
+    Press q to quit.
+
+    Press r to reload the configuration.
+
+    Number  | Stop    | View output | Running? | Program
+    Restart |         |             |          |
+    --------+---------+-------------+----------+--------
+     1      |  a      |  n          |  Y       | /usr/local/bin/go run main.go
+     2      |  b      |  o          |  Error!  | ./compile_css.sh
+     3      |  c      |  p          |  Y       | ./run_caddy.sh
+
+    Output:
+    [pager]
