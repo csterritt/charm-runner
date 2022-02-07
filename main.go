@@ -37,11 +37,14 @@ type configuration struct {
 }
 
 type programState struct {
-	ProgramCommand string `json:"programCommand"`
+	ProgramCommand string
 	ProgramRunning bool
 	ProgramRan     bool
 	ProgramSuccess bool
 	ProgramOutput  string
+	RestartRune    rune
+	StopRune       rune
+	ViewOutputRune rune
 }
 
 type model struct {
@@ -127,6 +130,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case configuration:
 		m.waitingOnConfig = false
 		m.programs = msg.Commands
+		restart := '1'
+		stop := 'a'
+		view := 'n'
+		for index := range m.programs {
+			m.programs[index].RestartRune = restart
+			m.programs[index].StopRune = stop
+			m.programs[index].ViewOutputRune = view
+			restart += 1
+			stop += 1
+			view += 1
+			if view == 'q' {
+				view = 's'
+			}
+		}
 		return m, nil
 
 	case errMsg:
@@ -167,7 +184,30 @@ func (m model) View() string {
 	s := "Program runner.\n\nPress q to quit.\n\nPress r to reload the configuration.\n\n"
 
 	if m.err != nil {
-		s += "Error found: " + m.err.Error()
+		s += "Error found: " + m.err.Error() + "\n\n"
+	}
+
+	s += "Restart | Stop    | View output | Running? | Program\n"
+	s += "--------+---------+-------------+----------+--------\n"
+
+	for index := range m.programs {
+		runningState := " "
+		if m.programs[index].ProgramRunning {
+			runningState = "Y"
+		} else if m.programs[index].ProgramRan && !m.programs[index].ProgramSuccess {
+			runningState = "Error!"
+		}
+
+		command := m.programs[index].ProgramCommand
+		if strings.Index(command, "/") == 0 {
+			args := strings.Split(command, " ")
+			programParts := strings.Split(args[0], "/")
+			command = programParts[len(programParts)-1] + " " + strings.Join(args[1:], " ")
+		}
+
+		s += fmt.Sprintf(" %-7c|  %-7c|  %-11c| %-9s| %s\n",
+			m.programs[index].RestartRune, m.programs[index].StopRune, m.programs[index].ViewOutputRune,
+			runningState, command)
 	}
 
 	// Send the UI for rendering

@@ -15,8 +15,7 @@ Next:
 
     Press r to reload the configuration.
 
-    Number  | Stop    | View output | Running? | Program
-    Restart |         |             |          |
+    Restart | Stop    | View output | Running? | Program
     --------+---------+-------------+----------+--------
      1      |  a      |  n          |  Y       | /usr/local/bin/go run main.go
      2      |  b      |  o          |  Error!  | ./compile_css.sh
