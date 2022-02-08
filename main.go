@@ -42,15 +42,15 @@ type programState struct {
 	ProgramRan     bool
 	ProgramSuccess bool
 	ProgramOutput  string
-	RestartRune    rune
-	StopRune       rune
-	ViewOutputRune rune
+	StartStopChar  string
+	ViewOutputChar string
 }
 
 type model struct {
 	err             error
 	waitingOnConfig bool
 	showingHelp     bool
+	message         string
 	programs        []programState
 }
 
@@ -62,7 +62,6 @@ type programFinishedMessage struct {
 var globalError error
 
 func loadConfigFile() tea.Msg {
-	dumpStringToDebugListener("Entering loadConfigFile...")
 	file, err := ioutil.ReadFile("config.json")
 
 	if err != nil {
@@ -134,8 +133,8 @@ func mainView(m model) string {
 		s += "Error found: " + m.err.Error() + "\n\n"
 	}
 
-	s += "Restart | Stop    | View output | Running? | Program\n"
-	s += "--------+---------+-------------+----------+--------\n"
+	s += "Start/Stop | View output | Running? | Program\n"
+	s += "-----------+-------------+----------+--------\n"
 
 	for index := range m.programs {
 		runningState := " "
@@ -152,10 +151,12 @@ func mainView(m model) string {
 			command = programParts[len(programParts)-1] + " " + strings.Join(args[1:], " ")
 		}
 
-		s += fmt.Sprintf(" %-7c|  %-7c|  %-11c| %-9s| %s\n",
-			m.programs[index].RestartRune, m.programs[index].StopRune, m.programs[index].ViewOutputRune,
+		s += fmt.Sprintf(" %-10s|  %-11s|  %-8s| %s\n",
+			m.programs[index].StartStopChar, m.programs[index].ViewOutputChar,
 			runningState, command)
 	}
+
+	s += "\n" + m.message + "\n"
 
 	// Send the UI for rendering
 	return s
@@ -171,15 +172,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case configuration:
 		m.waitingOnConfig = false
 		m.programs = msg.Commands
-		restart := '1'
-		stop := 'a'
-		view := 'n'
+		startStop := '1'
+		view := 'a'
 		for index := range m.programs {
-			m.programs[index].RestartRune = restart
-			m.programs[index].StopRune = stop
-			m.programs[index].ViewOutputRune = view
-			restart += 1
-			stop += 1
+			m.programs[index].StartStopChar = string(startStop)
+			m.programs[index].ViewOutputChar = string(view)
+			startStop += 1
 			view += 1
 			if view == 'q' {
 				view = 's'
@@ -195,7 +193,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Is it a key press?
 	case tea.KeyMsg:
 		// Cool, what was the actual key pressed?
-		switch msg.String() {
+		ch := msg.String()
+		switch ch {
 
 		// Exit the program.
 		case "ctrl+c", "q":
@@ -203,13 +202,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Reload the configuration file
 		case "r":
-			dumpStringToDebugListener(fmt.Sprintf("Model is %#v\n", m))
-			return m, nil
+			m.message = "Reloading config file..."
 
 		// Help
 		case "h":
 			m.showingHelp = !m.showingHelp
-			return m, nil
+
+		// all others
+		default:
+			for index := range m.programs {
+				if m.programs[index].StartStopChar == ch {
+					m.message = fmt.Sprintf("Starting/stopping program %d\n", index)
+					m.programs[index].ProgramRunning = !m.programs[index].ProgramRunning
+				} else if m.programs[index].ViewOutputChar == ch {
+					m.message = fmt.Sprintf("Viewing output of program %d\n", index)
+				}
+			}
 		}
 
 		// Notification that the program finished

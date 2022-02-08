@@ -15,11 +15,11 @@ Next:
 
     Press r to reload the configuration.
 
-    Restart | Stop    | View output | Running? | Program
-    --------+---------+-------------+----------+--------
-     1      |  a      |  n          |  Y       | /usr/local/bin/go run main.go
-     2      |  b      |  o          |  Error!  | ./compile_css.sh
-     3      |  c      |  p          |  Y       | ./run_caddy.sh
+    Start/Stop | View output | Running? | Program
+    -----------+-------------+----------+--------
+     1         |  a          |  Y       | /usr/local/bin/go run main.go
+     2         |  b          |  Error!  | ./compile_css.sh
+     3         |  c          |  Y       | ./run_caddy.sh
 
     Output:
     [pager]
