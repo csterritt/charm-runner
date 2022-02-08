@@ -50,6 +50,7 @@ type programState struct {
 type model struct {
 	err             error
 	waitingOnConfig bool
+	showingHelp     bool
 	programs        []programState
 }
 
@@ -120,6 +121,46 @@ func startProgram(m *programState) {
 	}()
 }
 
+func helpView(m model) string {
+	s := "Program runner help:\n\nPress h again to exit help.\n\n"
+
+	return s
+}
+
+func mainView(m model) string {
+	s := "Program runner.\n\nPress:\n  h for help\n  q to quit.\n  r to reload the configuration.\n\n"
+
+	if m.err != nil {
+		s += "Error found: " + m.err.Error() + "\n\n"
+	}
+
+	s += "Restart | Stop    | View output | Running? | Program\n"
+	s += "--------+---------+-------------+----------+--------\n"
+
+	for index := range m.programs {
+		runningState := " "
+		if m.programs[index].ProgramRunning {
+			runningState = "Y"
+		} else if m.programs[index].ProgramRan && !m.programs[index].ProgramSuccess {
+			runningState = "Error!"
+		}
+
+		command := m.programs[index].ProgramCommand
+		if strings.Index(command, "/") == 0 {
+			args := strings.Split(command, " ")
+			programParts := strings.Split(args[0], "/")
+			command = programParts[len(programParts)-1] + " " + strings.Join(args[1:], " ")
+		}
+
+		s += fmt.Sprintf(" %-7c|  %-7c|  %-11c| %-9s| %s\n",
+			m.programs[index].RestartRune, m.programs[index].StopRune, m.programs[index].ViewOutputRune,
+			runningState, command)
+	}
+
+	// Send the UI for rendering
+	return s
+}
+
 func (m model) Init() tea.Cmd {
 	return loadConfigFile
 }
@@ -164,6 +205,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "r":
 			dumpStringToDebugListener(fmt.Sprintf("Model is %#v\n", m))
 			return m, nil
+
+		// Help
+		case "h":
+			m.showingHelp = !m.showingHelp
+			return m, nil
 		}
 
 		// Notification that the program finished
@@ -181,33 +227,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
-	s := "Program runner.\n\nPress q to quit.\n\nPress r to reload the configuration.\n\n"
-
-	if m.err != nil {
-		s += "Error found: " + m.err.Error() + "\n\n"
-	}
-
-	s += "Restart | Stop    | View output | Running? | Program\n"
-	s += "--------+---------+-------------+----------+--------\n"
-
-	for index := range m.programs {
-		runningState := " "
-		if m.programs[index].ProgramRunning {
-			runningState = "Y"
-		} else if m.programs[index].ProgramRan && !m.programs[index].ProgramSuccess {
-			runningState = "Error!"
-		}
-
-		command := m.programs[index].ProgramCommand
-		if strings.Index(command, "/") == 0 {
-			args := strings.Split(command, " ")
-			programParts := strings.Split(args[0], "/")
-			command = programParts[len(programParts)-1] + " " + strings.Join(args[1:], " ")
-		}
-
-		s += fmt.Sprintf(" %-7c|  %-7c|  %-11c| %-9s| %s\n",
-			m.programs[index].RestartRune, m.programs[index].StopRune, m.programs[index].ViewOutputRune,
-			runningState, command)
+	var s string
+	if m.showingHelp {
+		s = helpView(m)
+	} else {
+		s = mainView(m)
 	}
 
 	// Send the UI for rendering
