@@ -2,7 +2,7 @@ package circular_buffer
 
 import "sync"
 
-type circularBuffer struct {
+type CircularBuffer struct {
 	max      int
 	num      int
 	nextSlot int
@@ -10,8 +10,8 @@ type circularBuffer struct {
 	lock     sync.Mutex
 }
 
-func MakeCircularBuffer(size int) circularBuffer {
-	return circularBuffer{
+func MakeCircularBuffer(size int) CircularBuffer {
+	return CircularBuffer{
 		max:      size,
 		num:      0,
 		nextSlot: 0,
@@ -19,7 +19,7 @@ func MakeCircularBuffer(size int) circularBuffer {
 	}
 }
 
-func (cb *circularBuffer) AddString(s string) {
+func (cb *CircularBuffer) AddString(s string) {
 	cb.lock.Lock()
 	defer cb.lock.Unlock()
 
@@ -36,7 +36,7 @@ func (cb *circularBuffer) AddString(s string) {
 	}
 }
 
-func (cb *circularBuffer) Iter() <-chan string {
+func (cb *CircularBuffer) Iter() <-chan string {
 	ch := make(chan string)
 	go func() {
 		cb.lock.Lock()
@@ -60,5 +60,3 @@ func (cb *circularBuffer) Iter() <-chan string {
 	}()
 	return ch
 }
-
-
