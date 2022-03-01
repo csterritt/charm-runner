@@ -1,49 +1,22 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"net"
 	"os"
-	"os/exec"
 	"strings"
+
+	"charm_runner/debug"
+	"charm_runner/process"
+	"charm_runner/types"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// Application constants, defining host, port, and protocol.
-const (
-	debugListenerHost = "localhost"
-	debugListenerPort = "21212"
-	debugListenerType = "tcp"
-)
-
-func dumpStringToDebugListener(output string) {
-	conn, err := net.Dial(debugListenerType, debugListenerHost+":"+debugListenerPort)
-	if err != nil {
-		return
-	}
-	defer conn.Close()
-
-	// Send to socket connection.
-	_, _ = conn.Write([]byte(output + "\n"))
-}
-
 type configuration struct {
 	Name     string
-	Commands []programState
-}
-
-type programState struct {
-	ProgramCommand string
-	ProgramRunning bool
-	ProgramRan     bool
-	ProgramSuccess bool
-	ProgramOutput  string
-	StartStopChar  string
-	ViewOutputChar string
+	Commands []process.ProgramState
 }
 
 type model struct {
@@ -51,33 +24,7 @@ type model struct {
 	waitingOnConfig bool
 	showingHelp     bool
 	message         string
-	programs        []programState
-}
-
-type programFinishedMessage struct {
-	programSuccess bool
-	programOutput  string
-}
-
-var globalError error
-
-func loadConfigFile() tea.Msg {
-	file, err := ioutil.ReadFile("config.json")
-
-	if err != nil {
-		dumpStringToDebugListener(fmt.Sprintln("... err on reading config.json is", err))
-		return errMsg{err}
-	}
-
-	var data configuration
-	err = json.Unmarshal([]byte(file), &data)
-
-	if err != nil {
-		dumpStringToDebugListener(fmt.Sprintln("... err on unmarshalling json is", err))
-		return errMsg{err}
-	}
-
-	return data
+	programs        []process.ProgramState
 }
 
 type errMsg struct{ err error }
@@ -86,38 +33,32 @@ type errMsg struct{ err error }
 // error interface on the message.
 func (e errMsg) Error() string { return e.err.Error() }
 
+var globalError error
+
+func loadConfigFile() tea.Msg {
+	file, err := ioutil.ReadFile("config.json")
+
+	if err != nil {
+		debug.DumpStringToDebugListener(fmt.Sprintln("... err on reading config.json is", err))
+		return errMsg{err}
+	}
+
+	var data configuration
+	err = json.Unmarshal([]byte(file), &data)
+
+	if err != nil {
+		debug.DumpStringToDebugListener(fmt.Sprintln("... err on unmarshalling json is", err))
+		return errMsg{err}
+	}
+
+	return data
+}
+
 func initialModel() model {
 	return model{
 		waitingOnConfig: true,
-		programs:        make([]programState, 0),
+		programs:        make([]process.ProgramState, 0),
 	}
-}
-
-func startProgram(m *programState) {
-	go func() {
-		commandAndArgs := strings.Split(m.ProgramCommand, " ")
-
-		var stdOut bytes.Buffer
-		var stdErr bytes.Buffer
-		runCommand := &exec.Cmd{
-			Path:   commandAndArgs[0],
-			Args:   commandAndArgs,
-			Stdout: &stdOut,
-			Stderr: &stdErr,
-		}
-
-		err := runCommand.Run()
-		message := programFinishedMessage{}
-		if err != nil {
-			message.programOutput = strings.TrimSpace(string(stdErr.Bytes()))
-			message.programSuccess = false
-		} else {
-			message.programOutput = strings.TrimSpace(string(stdOut.Bytes()))
-			message.programSuccess = true
-		}
-
-		p.Send(message)
-	}()
 }
 
 func helpView(m model) string {
@@ -134,7 +75,7 @@ func mainView(m model) string {
 	}
 
 	s += "Start/Stop | View output | Running? | Program\n"
-	s += "-----------+-------------+----------+--------\n"
+	s += "-----------+-------------+----------+---------\n"
 
 	for index := range m.programs {
 		runningState := " "
@@ -169,6 +110,11 @@ func (m model) Init() tea.Cmd {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
+	case errMsg:
+		debug.DumpStringToDebugListener(fmt.Sprintln("... update got an errMsg with error", msg))
+		globalError = msg
+		return m, tea.Quit
+
 	case configuration:
 		m.waitingOnConfig = false
 		m.programs = msg.Commands
@@ -185,10 +131,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case errMsg:
-		dumpStringToDebugListener(fmt.Sprintln("... update got an errMsg with error", msg))
-		globalError = msg
-		return m, tea.Quit
+	case types.InfoMessage:
+		m.message = msg.Message
+		debug.DumpStringToDebugListener("Got message " + msg.Message + " in Update.")
+		return m, nil
 
 	// Is it a key press?
 	case tea.KeyMsg:
@@ -212,21 +158,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		default:
 			for index := range m.programs {
 				if m.programs[index].StartStopChar == ch {
-					m.message = fmt.Sprintf("Starting/stopping program %d\n", index)
-					m.programs[index].ProgramRunning = !m.programs[index].ProgramRunning
+					debug.DumpStringToDebugListener(fmt.Sprintf("Sending start/stop to program %d\n", index))
+					m.message = m.programs[index].StartStopProgram()
+					debug.DumpStringToDebugListener(fmt.Sprintf("Finished sending start/stop to program %d\n", index))
+					return m, nil
 				} else if m.programs[index].ViewOutputChar == ch {
 					m.message = fmt.Sprintf("Viewing output of program %d\n", index)
 				}
 			}
 		}
-
-		// Notification that the program finished
-		//case programFinishedMessage:
-		//	m.programRunning = false
-		//	m.programSuccess = msg.programSuccess
-		//	m.programOutput = msg.programOutput
-		//	m.programRan = true
-		//	return m, nil
 	}
 
 	// Return the updated model to the Bubble Tea runtime for processing.
@@ -252,12 +192,12 @@ func main() {
 	model := initialModel()
 	p = tea.NewProgram(model, tea.WithAltScreen())
 	if err := p.Start(); err != nil {
-		dumpStringToDebugListener(fmt.Sprintf("Alas, there's been an error: %v", err))
+		debug.DumpStringToDebugListener(fmt.Sprintf("Alas, there's been an error: %v", err))
 		fmt.Printf("Alas, there's been an error: %v\n", err)
 		os.Exit(1)
 	}
 	if globalError != nil {
-		dumpStringToDebugListener(fmt.Sprintf("Alas, there's been an error: %v", globalError))
+		debug.DumpStringToDebugListener(fmt.Sprintf("Alas, there's been an error: %v", globalError))
 		fmt.Printf("Alas, there's been an error: %v\n", globalError)
 		os.Exit(1)
 	}
