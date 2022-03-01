@@ -13,6 +13,7 @@ import (
 	"charm_runner/types"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type configuration struct {
@@ -34,7 +35,12 @@ type errMsg struct{ err error }
 // error interface on the message.
 func (e errMsg) Error() string { return e.err.Error() }
 
-var globalError error
+var (
+	globalError error
+
+	errorStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("9"))
+)
 
 func loadConfigFile() tea.Msg {
 	file, err := ioutil.ReadFile("config.json")
@@ -80,10 +86,12 @@ func mainView(m model) string {
 
 	for index := range m.programs {
 		runningState := " "
+		showError := false
 		if m.programs[index].ProgramRunning {
 			runningState = "Y"
 		} else if m.programs[index].ProgramRan && !m.programs[index].ProgramSuccess {
 			runningState = "Error!"
+			showError = true
 		}
 
 		command := m.programs[index].ProgramCommand
@@ -93,9 +101,13 @@ func mainView(m model) string {
 			command = programParts[len(programParts)-1] + " " + strings.Join(args[1:], " ")
 		}
 
-		s += fmt.Sprintf(" %-10s|  %-11s|  %-8s| %s\n",
+		runningStateOut := fmt.Sprintf("  %-8s", runningState)
+		if showError {
+			runningStateOut = errorStyle.Render(runningStateOut)
+		}
+		s += fmt.Sprintf(" %-10s|  %-11s|%s| %s\n",
 			m.programs[index].StartStopChar, m.programs[index].ViewOutputChar,
-			runningState, command)
+			runningStateOut, command)
 	}
 
 	s += "\n" + m.message + "\n"
