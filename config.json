@@ -2,7 +2,16 @@
   "name": "First",
   "commands": [
     {
+      "programCommand": "./no-such-program"
+    },
+    {
       "programCommand": "./bin/try_slowroll"
+    },
+    {
+      "programCommand": "./bin/try_slowroll Second"
+    },
+    {
+      "programCommand": "./bin/try_slowroll Failer fail"
     }
   ]
 }

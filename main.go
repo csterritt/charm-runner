@@ -127,6 +127,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.programs[index].ViewOutputChar = string(view)
 			m.programs[index].ProgramStdOut = circular_buffer.MakeCircularBuffer(100)
 			m.programs[index].ProgramStdErr = circular_buffer.MakeCircularBuffer(100)
+			m.programs[index].ProgramFinalMessage = "Program not run yet."
 			startStop += 1
 			view += 1
 			if view == 'q' {
@@ -145,6 +146,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.programs[msg.ProgramIndex].ProgramRan = true
 		m.programs[msg.ProgramIndex].ProgramRunning = false
 		m.programs[msg.ProgramIndex].ProgramSuccess = msg.ProgramSuccess
+		m.programs[msg.ProgramIndex].ProgramFinalMessage = msg.ProgramOutput
 		return m, nil
 
 	// Is it a key press?
@@ -174,6 +176,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					debug.DumpStringToDebugListener(fmt.Sprintf("Sending start/stop to program %d\n", programNum))
 					m.message, err = m.programs[index].StartStopProgram(p)
 					if err == nil {
+						m.programs[index].ProgramFinalMessage = fmt.Sprintf("Program %d running...\n", programNum)
 						debug.DumpStringToDebugListener(fmt.Sprintf("Finished sending start/stop to program %d\n", programNum))
 						return m, nil
 					} else {
@@ -182,7 +185,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.message = fmt.Sprintf("Starting program %d got error: %v\nOutput: %s\n", programNum, err, m.message)
 					}
 				} else if m.programs[index].ViewOutputChar == ch {
-					m.message = "Stdout:\n"
+					m.message = m.programs[index].ProgramFinalMessage + "\n"
+					m.message += "Stdout:\n"
 					for s := range m.programs[index].ProgramStdOut.Iter() {
 						m.message += s + "\n"
 					}

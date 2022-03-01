@@ -14,16 +14,17 @@ import (
 )
 
 type ProgramState struct {
-	ProgramIndex   int
-	ProgramCommand string
-	ProgramRunning bool
-	ProgramRan     bool
-	ProgramSuccess bool
-	ProgramStdOut  circular_buffer.CircularBuffer
-	ProgramStdErr  circular_buffer.CircularBuffer
-	StartStopChar  string
-	ViewOutputChar string
-	Process        exec.Cmd
+	ProgramIndex        int
+	ProgramCommand      string
+	ProgramRunning      bool
+	ProgramRan          bool
+	ProgramSuccess      bool
+	ProgramFinalMessage string
+	ProgramStdOut       circular_buffer.CircularBuffer
+	ProgramStdErr       circular_buffer.CircularBuffer
+	StartStopChar       string
+	ViewOutputChar      string
+	Process             exec.Cmd
 }
 
 type ProgramFinishedMessage struct {
@@ -95,7 +96,7 @@ func startProgram(m *ProgramState, p *tea.Program) {
 				ProgramIndex: m.ProgramIndex,
 			}
 			if err != nil {
-				message.ProgramOutput = fmt.Sprintf("Program %d failed.", m.ProgramIndex+1)
+				message.ProgramOutput = fmt.Sprintf("Program %d failed with error:\n  %v\n", m.ProgramIndex+1, err.Error())
 				message.ProgramSuccess = false
 			} else {
 				message.ProgramOutput = fmt.Sprintf("Program %d finished successfully.", m.ProgramIndex+1)
