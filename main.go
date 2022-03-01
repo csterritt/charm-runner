@@ -148,7 +148,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Reload the configuration file
 		case "r":
-			m.message = "Reloading config file..."
+			m.message = "Reloading config file... (not)."
 
 		// Help
 		case "h":

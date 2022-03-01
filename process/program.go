@@ -30,57 +30,6 @@ type ProgramFinishedMessage struct {
 	ProgramOutput  string
 }
 
-type circularBuffer struct {
-	max      int
-	num      int
-	nextSlot int
-	strings  []string
-}
-
-func makeCircularBuffer(size int) circularBuffer {
-	return circularBuffer{
-		max:      size,
-		num:      0,
-		nextSlot: 0,
-		strings:  make([]string, size),
-	}
-}
-
-func (cb *circularBuffer) addString(s string) {
-	if cb.num != cb.max {
-		cb.strings[cb.nextSlot] = s
-		cb.nextSlot += 1
-		cb.num += 1
-		if cb.num == cb.max {
-			cb.nextSlot = 0
-		}
-	} else {
-		cb.strings[cb.nextSlot] = s
-		cb.nextSlot = (cb.nextSlot + 1) % cb.max
-	}
-}
-
-func (cb *circularBuffer) Iter() <-chan string {
-	ch := make(chan string)
-	go func() {
-		if cb.num != cb.max {
-			for index := 0; index < cb.num; index += 1 {
-				ch <- cb.strings[index]
-			}
-		} else {
-			index := cb.nextSlot
-			count := 0
-			for count != cb.max {
-				count += 1
-				ch <- cb.strings[index]
-				index = (index + 1) % cb.max
-			}
-		}
-		close(ch)
-	}()
-	return ch
-}
-
 func startProgram(m *ProgramState, p *tea.Program) {
 	go func() {
 		commandAndArgs := strings.Split(m.ProgramCommand, " ")
