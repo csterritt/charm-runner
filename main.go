@@ -10,11 +10,14 @@ import (
 	"charm_runner/circular_buffer"
 	"charm_runner/debug"
 	"charm_runner/process"
-	"charm_runner/types"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
+
+// bubbletea
+const useHighPerformanceRenderer = false
 
 type configuration struct {
 	Name     string
@@ -22,11 +25,13 @@ type configuration struct {
 }
 
 type model struct {
-	err             error
+	ready           bool
 	waitingOnConfig bool
 	showingHelp     bool
-	message         string
 	programs        []process.ProgramState
+	message         string
+	outViewport     viewport.Model
+	err             error
 }
 
 type errMsg struct{ err error }
@@ -38,9 +43,17 @@ func (e errMsg) Error() string { return e.err.Error() }
 var (
 	globalError error
 
+	// red background
 	errorStyle = lipgloss.NewStyle().
 			Background(lipgloss.Color("9"))
 )
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
 
 func loadConfigFile() tea.Msg {
 	file, err := ioutil.ReadFile("config.json")
@@ -51,7 +64,7 @@ func loadConfigFile() tea.Msg {
 	}
 
 	var data configuration
-	err = json.Unmarshal([]byte(file), &data)
+	err = json.Unmarshal(file, &data)
 
 	if err != nil {
 		debug.DumpStringToDebugListener(fmt.Sprintln("... err on unmarshalling json is", err))
@@ -68,19 +81,34 @@ func initialModel() model {
 	}
 }
 
-func helpView(m model) string {
-	s := "Program runner help:\n\nPress h again to exit help.\n\n"
+func (m model) helpView() string {
+	s := " Program runner help: "
+	line1 := strings.Repeat("─", 2)
+	line2 := strings.Repeat("─", max(0, m.outViewport.Width-lipgloss.Width(s)-lipgloss.Width(line1)))
+	s = lipgloss.JoinHorizontal(lipgloss.Center, line1, s, line2)
+
+	s += "\n\nPress:\n  h to enter/exit help\n  q to quit.\n  r to reload the configuration.\n\n"
 
 	return s
 }
 
-func mainView(m model) string {
-	s := "Program runner.\n\nPress:\n  h for help\n  q to quit.\n  r to reload the configuration.\n\n"
+func (m model) titleView() string {
+	title1 := " Program runner "
+	line1 := strings.Repeat("─", 2)
+	title2 := " (h)elp "
+	line2 := strings.Repeat("─", max(0, m.outViewport.Width-lipgloss.Width(title1)-lipgloss.Width(title2)-2*lipgloss.Width(line1)))
+	return lipgloss.JoinHorizontal(lipgloss.Center, line1, title1, line2, title2, line1)
+}
 
-	if m.err != nil {
-		s += "Error found: " + m.err.Error() + "\n\n"
-	}
+func (m model) outputTitleView() string {
+	title := " Output "
+	line1 := strings.Repeat("─", 2)
+	line2 := strings.Repeat("─", max(0, m.outViewport.Width-lipgloss.Width(title)-lipgloss.Width(line1)))
+	return lipgloss.JoinHorizontal(lipgloss.Center, line1, title, line2)
+}
 
+func (m model) headerView() string {
+	s := "\n"
 	s += "Start/Stop | View output | Running? | Program\n"
 	s += "-----------+-------------+----------+---------\n"
 
@@ -110,10 +138,14 @@ func mainView(m model) string {
 			runningStateOut, command)
 	}
 
-	s += "\n" + m.message + "\n"
-
 	// Send the UI for rendering
 	return s
+}
+
+func (m model) footerView() string {
+	info := fmt.Sprintf("%3.f%%", m.outViewport.ScrollPercent()*100)
+	line := strings.Repeat("─", max(0, m.outViewport.Width-lipgloss.Width(info)))
+	return lipgloss.JoinHorizontal(lipgloss.Center, line, info)
 }
 
 func (m model) Init() tea.Cmd {
@@ -121,6 +153,11 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var (
+		cmd  tea.Cmd
+		cmds []tea.Cmd
+	)
+
 	switch msg := msg.(type) {
 
 	case errMsg:
@@ -148,10 +185,37 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case types.InfoMessage:
-		m.message = msg.Message
-		debug.DumpStringToDebugListener("Got message " + msg.Message + " in Update.")
-		return m, nil
+	case tea.WindowSizeMsg:
+		headerHeight := lipgloss.Height(m.titleView() + m.headerView() + m.outputTitleView())
+		footerHeight := lipgloss.Height(m.footerView())
+		verticalMarginHeight := headerHeight + footerHeight
+		viewportHeight := msg.Height - verticalMarginHeight - 7
+
+		if !m.ready {
+			// Since this program is using the full size of the viewport we
+			// need to wait until we've received the window dimensions before
+			// we can initialize the viewport. The initial dimensions come in
+			// quickly, though asynchronously, which is why we wait for them
+			// here.
+			m.outViewport = viewport.New(msg.Width, viewportHeight)
+			m.outViewport.HighPerformanceRendering = useHighPerformanceRenderer
+			m.outViewport.SetContent("")
+			m.ready = true
+
+			// Render the viewport one line below the header.
+			m.outViewport.YPosition = headerHeight + 1
+		} else {
+			m.outViewport.Width = msg.Width
+			m.outViewport.Height = viewportHeight
+		}
+
+		if useHighPerformanceRenderer {
+			// Render (or re-render) the whole viewport. Necessary both to
+			// initialize the viewport and when the window is resized.
+			//
+			// This is needed for high-performance rendering only.
+			cmds = append(cmds, viewport.Sync(m.outViewport))
+		}
 
 	case process.ProgramFinishedMessage:
 		m.message = msg.ProgramOutput
@@ -198,34 +262,47 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				} else if m.programs[index].ViewOutputChar == ch {
 					m.message = m.programs[index].ProgramFinalMessage + "\n"
-					m.message += "Stdout:\n"
+					//m.message += "Stdout:\n"
+					//for s := range m.programs[index].ProgramStdOut.Iter() {
+					//	m.message += s + "\n"
+					//}
+					//m.message += "\nStderr:\n"
+					//for s := range m.programs[index].ProgramStdErr.Iter() {
+					//	m.message += s + "\n"
+					//}
+					stdOut := ""
 					for s := range m.programs[index].ProgramStdOut.Iter() {
-						m.message += s + "\n"
+						stdOut += s + "\n"
 					}
-					m.message += "\nStderr:\n"
-					for s := range m.programs[index].ProgramStdErr.Iter() {
-						m.message += s + "\n"
-					}
+					//stdErr := ""
+					//for s := range m.programs[index].ProgramStdErr.Iter() {
+					//	stdErr += s + "\n"
+					//}
+					m.outViewport.SetContent(stdOut)
 				}
 			}
 		}
 	}
 
-	// Return the updated model to the Bubble Tea runtime for processing.
-	// Note that we're not returning a command.
-	return m, nil
+	// Handle keyboard and mouse events in the viewport
+	m.outViewport, cmd = m.outViewport.Update(msg)
+	cmds = append(cmds, cmd)
+
+	return m, tea.Batch(cmds...)
 }
 
 func (m model) View() string {
-	var s string
+	if !m.ready {
+		return "\n  Initializing..."
+	}
+
 	if m.showingHelp {
-		s = helpView(m)
-	} else {
-		s = mainView(m)
+		return m.helpView()
 	}
 
 	// Send the UI for rendering
-	return s
+	return fmt.Sprintf("%s\n%s\n%s\n%s\n%s\n",
+		m.titleView(), m.headerView(), m.outputTitleView(), m.outViewport.View(), m.footerView())
 }
 
 var p *tea.Program
