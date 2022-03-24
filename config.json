@@ -12,6 +12,15 @@
     },
     {
       "programCommand": "./bin/try_slowroll Failer fail"
+    },
+    {
+      "programCommand": "./bin/try_many_lines"
+    },
+    {
+      "programCommand": "./bin/try_many_lines long"
+    },
+    {
+      "programCommand": "./bin/try_many_lines nap"
     }
   ]
 }

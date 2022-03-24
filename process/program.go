@@ -52,6 +52,7 @@ func startProgram(m *ProgramState, p *tea.Program) {
 		var wg sync.WaitGroup
 
 		stdOutChan := make(chan string, 1)
+		stdOutDone := make(chan bool, 1)
 		go func(wg *sync.WaitGroup) {
 			defer wg.Done()
 
@@ -61,7 +62,7 @@ func startProgram(m *ProgramState, p *tea.Program) {
 			}
 
 			debug.DumpStringToDebugListener("Ran out of stdout input, read thread bailing.")
-			close(stdOutChan)
+			stdOutDone <- true
 		}(&wg)
 
 		wg.Add(1)
@@ -74,6 +75,7 @@ func startProgram(m *ProgramState, p *tea.Program) {
 		}
 
 		stdErrChan := make(chan string, 1)
+		stdErrDone := make(chan bool, 1)
 		go func(wg *sync.WaitGroup) {
 			defer wg.Done()
 
@@ -83,56 +85,61 @@ func startProgram(m *ProgramState, p *tea.Program) {
 			}
 
 			debug.DumpStringToDebugListener("Ran out of stderr input, read thread bailing.")
-			close(stdErrChan)
+			stdErrDone <- true
 		}(&wg)
 
 		wg.Add(1)
 
-		go func(wg *sync.WaitGroup) {
-			defer wg.Done()
+		err = runCommand.Start()
+		message := ProgramFinishedMessage{
+			ProgramIndex: m.ProgramIndex,
+		}
+		if err != nil {
+			message.ProgramOutput = fmt.Sprintf("Program %d failed with error:\n  %v\n", m.ProgramIndex+1, err.Error())
+			message.ProgramSuccess = false
+		} else {
+			message.ProgramOutput = fmt.Sprintf("Program %d finished successfully.", m.ProgramIndex+1)
+			message.ProgramSuccess = true
+		}
 
-			err = runCommand.Run()
-			message := ProgramFinishedMessage{
-				ProgramIndex: m.ProgramIndex,
-			}
-			if err != nil {
-				message.ProgramOutput = fmt.Sprintf("Program %d failed with error:\n  %v\n", m.ProgramIndex+1, err.Error())
-				message.ProgramSuccess = false
-			} else {
-				message.ProgramOutput = fmt.Sprintf("Program %d finished successfully.", m.ProgramIndex+1)
-				message.ProgramSuccess = true
-			}
-
-			debug.DumpStringToDebugListener("Program.Run finished, final message is: " + message.ProgramOutput)
-			p.Send(message)
-		}(&wg)
-
-		wg.Add(1)
-
-		keepGoing := true
-		for keepGoing {
+		keepGoingOut := true
+		keepGoingErr := true
+		for keepGoingOut || keepGoingErr {
 			select {
 			case res, isOpen := <-stdOutChan:
 				if !isOpen {
-					debug.DumpStringToDebugListener("stdOutChan is no longer open.")
-					keepGoing = false
+					if keepGoingOut {
+						debug.DumpStringToDebugListener("stdOutChan is no longer open.")
+					}
 				} else {
-					debug.DumpStringToDebugListener("so:" + res)
 					m.ProgramStdOut.AddString(res)
 				}
 
 			case res, isOpen := <-stdErrChan:
 				if !isOpen {
-					debug.DumpStringToDebugListener("stdErrChan is no longer open.")
-					keepGoing = false
+					if keepGoingErr {
+						debug.DumpStringToDebugListener("stdErrChan is no longer open.")
+					}
 				} else {
-					debug.DumpStringToDebugListener("se:" + res)
 					m.ProgramStdErr.AddString(res)
 				}
+
+			case <-stdOutDone:
+				keepGoingOut = false
+
+			case <-stdErrDone:
+				keepGoingErr = false
 			}
 		}
 
 		wg.Wait()
+
+		if err := runCommand.Wait(); err != nil {
+			debug.DumpStringToDebugListener(fmt.Sprintf("Error waiting for command execution: %s\n", err.Error()))
+		}
+
+		debug.DumpStringToDebugListener("Program.Run finished, final message is: " + message.ProgramOutput)
+		p.Send(message)
 	}()
 }
 

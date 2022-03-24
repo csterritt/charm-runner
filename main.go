@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/reflow/wrap"
 )
 
 // bubbletea
@@ -89,6 +90,8 @@ func (m model) helpView() string {
 
 	s += "\n\nPress:\n  h to enter/exit help\n  q to quit.\n  r to reload the configuration.\n\n"
 
+	s += "Up/down arrow keys, PgUp/PgDn scroll the output window.\n"
+
 	return s
 }
 
@@ -108,6 +111,7 @@ func (m model) outputTitleView() string {
 }
 
 func (m model) headerView() string {
+	debug.DumpStringToDebugListener(fmt.Sprintf("headerView sees model with %d programs.", len(m.programs)))
 	s := "\n"
 	s += "Start/Stop | View output | Running? | Program\n"
 	s += "-----------+-------------+----------+---------\n"
@@ -143,13 +147,44 @@ func (m model) headerView() string {
 }
 
 func (m model) footerView() string {
-	info := fmt.Sprintf("%3.f%%", m.outViewport.ScrollPercent()*100)
+	info := fmt.Sprintf("%4.f%%", m.outViewport.ScrollPercent()*100)
 	line := strings.Repeat("─", max(0, m.outViewport.Width-lipgloss.Width(info)))
 	return lipgloss.JoinHorizontal(lipgloss.Center, line, info)
 }
 
 func (m model) Init() tea.Cmd {
 	return loadConfigFile
+}
+
+var lastHeight int
+var lastWidth int
+
+func updateLayout(m model) model {
+	headerHeight := lipgloss.Height(m.titleView() + m.headerView() + m.outputTitleView())
+	footerHeight := lipgloss.Height(m.footerView())
+	verticalMarginHeight := headerHeight + footerHeight
+	debug.DumpStringToDebugListener(fmt.Sprintf("updateLayout headerHeight is %d", headerHeight))
+	viewportHeight := lastHeight - verticalMarginHeight - 3
+
+	if !m.ready {
+		// Since this program is using the full size of the viewport we
+		// need to wait until we've received the window dimensions before
+		// we can initialize the viewport. The initial dimensions come in
+		// quickly, though asynchronously, which is why we wait for them
+		// here.
+		m.outViewport = viewport.New(lastWidth, viewportHeight)
+		m.outViewport.HighPerformanceRendering = useHighPerformanceRenderer
+		m.outViewport.SetContent("")
+		m.ready = true
+
+		// Render the viewport one line below the header.
+		m.outViewport.YPosition = headerHeight + 1
+	} else {
+		m.outViewport.Width = lastWidth
+		m.outViewport.Height = viewportHeight
+	}
+
+	return m
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -183,31 +218,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				view = 's'
 			}
 		}
+
+		debug.DumpStringToDebugListener(fmt.Sprintf("configuration got with lastHeight %d, lastWidth %d", lastHeight, lastWidth))
+		m = updateLayout(m)
+
 		return m, nil
 
 	case tea.WindowSizeMsg:
-		headerHeight := lipgloss.Height(m.titleView() + m.headerView() + m.outputTitleView())
-		footerHeight := lipgloss.Height(m.footerView())
-		verticalMarginHeight := headerHeight + footerHeight
-		viewportHeight := msg.Height - verticalMarginHeight - 7
-
-		if !m.ready {
-			// Since this program is using the full size of the viewport we
-			// need to wait until we've received the window dimensions before
-			// we can initialize the viewport. The initial dimensions come in
-			// quickly, though asynchronously, which is why we wait for them
-			// here.
-			m.outViewport = viewport.New(msg.Width, viewportHeight)
-			m.outViewport.HighPerformanceRendering = useHighPerformanceRenderer
-			m.outViewport.SetContent("")
-			m.ready = true
-
-			// Render the viewport one line below the header.
-			m.outViewport.YPosition = headerHeight + 1
-		} else {
-			m.outViewport.Width = msg.Width
-			m.outViewport.Height = viewportHeight
-		}
+		debug.DumpStringToDebugListener(fmt.Sprintf("tea.WindowSizeMsg got with msg %v", msg))
+		lastHeight = msg.Height
+		lastWidth = msg.Width
+		m = updateLayout(m)
 
 		if useHighPerformanceRenderer {
 			// Render (or re-render) the whole viewport. Necessary both to
@@ -272,7 +293,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					//}
 					stdOut := ""
 					for s := range m.programs[index].ProgramStdOut.Iter() {
-						stdOut += s + "\n"
+						//stdOut += s + "\n"
+						stdOut += wrap.String(s+"\n", m.outViewport.Width)
 					}
 					//stdErr := ""
 					//for s := range m.programs[index].ProgramStdErr.Iter() {
