@@ -24,6 +24,7 @@ type ProgramState struct {
 	ProgramStdErr       circular_buffer.CircularBuffer
 	StartStopChar       string
 	ViewOutputChar      string
+	ShowingOutputNow    bool
 	Process             exec.Cmd
 }
 
@@ -35,6 +36,7 @@ type ProgramFinishedMessage struct {
 
 func startProgram(m *ProgramState, p *tea.Program) {
 	go func() {
+		m.ProgramRan = true
 		commandAndArgs := strings.Split(m.ProgramCommand, " ")
 
 		runCommand := &exec.Cmd{

@@ -46,7 +46,11 @@ var (
 
 	// red background
 	errorStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color("9"))
+		Background(lipgloss.Color("9"))
+
+	// light blue background
+	highlightStyle = lipgloss.NewStyle().
+		Background(lipgloss.Color("14"))
 )
 
 func max(a, b int) int {
@@ -113,8 +117,8 @@ func (m model) outputTitleView() string {
 func (m model) headerView() string {
 	debug.DumpStringToDebugListener(fmt.Sprintf("headerView sees model with %d programs.", len(m.programs)))
 	s := "\n"
-	s += "Start/Stop | View output | Running? | Program\n"
-	s += "-----------+-------------+----------+---------\n"
+	s += "Start/Stop │ View output │ Running? │ Program\n"
+	s += "───────────┼─────────────┼──────────┼─────────\n"
 
 	for index := range m.programs {
 		runningState := " "
@@ -124,6 +128,8 @@ func (m model) headerView() string {
 		} else if m.programs[index].ProgramRan && !m.programs[index].ProgramSuccess {
 			runningState = "Error!"
 			showError = true
+		} else if m.programs[index].ProgramRan {
+			runningState = "Done"
 		}
 
 		command := m.programs[index].ProgramCommand
@@ -137,8 +143,14 @@ func (m model) headerView() string {
 		if showError {
 			runningStateOut = errorStyle.Render(runningStateOut)
 		}
-		s += fmt.Sprintf(" %-10s|  %-11s|%s| %s\n",
-			m.programs[index].StartStopChar, m.programs[index].ViewOutputChar,
+
+		viewOutputCharOut := fmt.Sprintf("  %-8s", m.programs[index].ViewOutputChar)
+		if m.programs[index].ProgramRan && m.programs[index].ShowingOutputNow {
+			viewOutputCharOut = highlightStyle.Render(viewOutputCharOut)
+		}
+
+		s += fmt.Sprintf(" %-10s│  %-10s │%s│ %s\n",
+			m.programs[index].StartStopChar, viewOutputCharOut,
 			runningStateOut, command)
 	}
 
@@ -266,6 +278,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// all others
 		default:
+			showingOutputRow := -1
 			for index := range m.programs {
 				programNum := index + 1
 				if m.programs[index].StartStopChar == ch {
@@ -282,6 +295,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.message = fmt.Sprintf("Starting program %d got error: %v\nOutput: %s\n", programNum, err, m.message)
 					}
 				} else if m.programs[index].ViewOutputChar == ch {
+					showingOutputRow = index
 					m.message = m.programs[index].ProgramFinalMessage + "\n"
 					//m.message += "Stdout:\n"
 					//for s := range m.programs[index].ProgramStdOut.Iter() {
@@ -301,6 +315,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					//	stdErr += s + "\n"
 					//}
 					m.outViewport.SetContent(stdOut)
+				}
+			}
+
+			if showingOutputRow != -1 {
+				for index := range m.programs {
+					m.programs[index].ShowingOutputNow = index == showingOutputRow
 				}
 			}
 		}
