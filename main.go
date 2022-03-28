@@ -46,11 +46,11 @@ var (
 
 	// red background
 	errorStyle = lipgloss.NewStyle().
-		Background(lipgloss.Color("9"))
+			Background(lipgloss.Color("9"))
 
 	// light blue background
 	highlightStyle = lipgloss.NewStyle().
-		Background(lipgloss.Color("14"))
+			Background(lipgloss.Color("14"))
 )
 
 func max(a, b int) int {
@@ -221,8 +221,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.programs[index].ProgramIndex = index
 			m.programs[index].StartStopChar = string(startStop)
 			m.programs[index].ViewOutputChar = string(view)
-			m.programs[index].ProgramStdOut = circular_buffer.MakeCircularBuffer(100)
-			m.programs[index].ProgramStdErr = circular_buffer.MakeCircularBuffer(100)
+			m.programs[index].ProgramOutput = circular_buffer.MakeCircularBuffer(100)
 			m.programs[index].ProgramFinalMessage = "Program not run yet."
 			startStop += 1
 			view += 1
@@ -297,23 +296,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else if m.programs[index].ViewOutputChar == ch {
 					showingOutputRow = index
 					m.message = m.programs[index].ProgramFinalMessage + "\n"
-					//m.message += "Stdout:\n"
-					//for s := range m.programs[index].ProgramStdOut.Iter() {
-					//	m.message += s + "\n"
-					//}
-					//m.message += "\nStderr:\n"
-					//for s := range m.programs[index].ProgramStdErr.Iter() {
-					//	m.message += s + "\n"
-					//}
 					stdOut := ""
-					for s := range m.programs[index].ProgramStdOut.Iter() {
-						//stdOut += s + "\n"
-						stdOut += wrap.String(s+"\n", m.outViewport.Width)
+					for s := range m.programs[index].ProgramOutput.Iter() {
+						prefix := "  "
+						if s.Typ == circular_buffer.StdErr {
+							prefix = errorStyle.Render("E:")
+						}
+						stdOut += wrap.String(prefix+" "+s.Line+"\n", m.outViewport.Width)
 					}
-					//stdErr := ""
-					//for s := range m.programs[index].ProgramStdErr.Iter() {
-					//	stdErr += s + "\n"
-					//}
 					m.outViewport.SetContent(stdOut)
 				}
 			}

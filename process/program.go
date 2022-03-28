@@ -20,8 +20,7 @@ type ProgramState struct {
 	ProgramRan          bool
 	ProgramSuccess      bool
 	ProgramFinalMessage string
-	ProgramStdOut       circular_buffer.CircularBuffer
-	ProgramStdErr       circular_buffer.CircularBuffer
+	ProgramOutput       circular_buffer.CircularBuffer
 	StartStopChar       string
 	ViewOutputChar      string
 	ShowingOutputNow    bool
@@ -46,21 +45,21 @@ func startProgram(m *ProgramState, p *tea.Program) {
 		stdOut, err := runCommand.StdoutPipe()
 		if err != nil {
 			msg := "Can't create StdoutPipe: " + err.Error()
-			m.ProgramStdErr.AddString(msg)
+			m.ProgramOutput.AddStderrString(msg)
 			debug.DumpStringToDebugListener(msg)
 			return
 		}
 
 		var wg sync.WaitGroup
 
-		stdOutChan := make(chan string, 1)
+		outputChan := make(chan string, 1)
 		stdOutDone := make(chan bool, 1)
 		go func(wg *sync.WaitGroup) {
 			defer wg.Done()
 
 			scanner := bufio.NewScanner(stdOut)
 			for scanner.Scan() {
-				stdOutChan <- string(scanner.Bytes())
+				outputChan <- string(scanner.Bytes())
 			}
 
 			debug.DumpStringToDebugListener("Ran out of stdout input, read thread bailing.")
@@ -72,7 +71,7 @@ func startProgram(m *ProgramState, p *tea.Program) {
 		stdErr, err := runCommand.StderrPipe()
 		if err != nil {
 			msg := "Can't create StderrPipe: " + err.Error()
-			m.ProgramStdErr.AddString(msg)
+			m.ProgramOutput.AddStderrString(msg)
 			debug.DumpStringToDebugListener(msg)
 		}
 
@@ -108,13 +107,13 @@ func startProgram(m *ProgramState, p *tea.Program) {
 		keepGoingErr := true
 		for keepGoingOut || keepGoingErr {
 			select {
-			case res, isOpen := <-stdOutChan:
+			case res, isOpen := <-outputChan:
 				if !isOpen {
 					if keepGoingOut {
-						debug.DumpStringToDebugListener("stdOutChan is no longer open.")
+						debug.DumpStringToDebugListener("outputChan is no longer open.")
 					}
 				} else {
-					m.ProgramStdOut.AddString(res)
+					m.ProgramOutput.AddStdoutString(res)
 				}
 
 			case res, isOpen := <-stdErrChan:
@@ -123,7 +122,7 @@ func startProgram(m *ProgramState, p *tea.Program) {
 						debug.DumpStringToDebugListener("stdErrChan is no longer open.")
 					}
 				} else {
-					m.ProgramStdErr.AddString(res)
+					m.ProgramOutput.AddStderrString(res)
 				}
 
 			case <-stdOutDone:
