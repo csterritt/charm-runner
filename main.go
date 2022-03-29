@@ -32,6 +32,7 @@ type model struct {
 	programs        []process.ProgramState
 	message         string
 	outViewport     viewport.Model
+	outputProgramId int
 	err             error
 }
 
@@ -83,6 +84,7 @@ func initialModel() model {
 	return model{
 		waitingOnConfig: true,
 		programs:        make([]process.ProgramState, 0),
+		outputProgramId: -1,
 	}
 }
 
@@ -115,7 +117,6 @@ func (m model) outputTitleView() string {
 }
 
 func (m model) headerView() string {
-	debug.DumpStringToDebugListener(fmt.Sprintf("headerView sees model with %d programs.", len(m.programs)))
 	s := "\n"
 	s += "Start/Stop │ View output │ Running? │ Program\n"
 	s += "───────────┼─────────────┼──────────┼─────────\n"
@@ -175,7 +176,6 @@ func updateLayout(m model) model {
 	headerHeight := lipgloss.Height(m.titleView() + m.headerView() + m.outputTitleView())
 	footerHeight := lipgloss.Height(m.footerView())
 	verticalMarginHeight := headerHeight + footerHeight
-	debug.DumpStringToDebugListener(fmt.Sprintf("updateLayout headerHeight is %d", headerHeight))
 	viewportHeight := lastHeight - verticalMarginHeight - 3
 
 	if !m.ready {
@@ -230,13 +230,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		debug.DumpStringToDebugListener(fmt.Sprintf("configuration got with lastHeight %d, lastWidth %d", lastHeight, lastWidth))
 		m = updateLayout(m)
 
 		return m, nil
 
 	case tea.WindowSizeMsg:
-		debug.DumpStringToDebugListener(fmt.Sprintf("tea.WindowSizeMsg got with msg %v", msg))
 		lastHeight = msg.Height
 		lastWidth = msg.Width
 		m = updateLayout(m)
@@ -256,6 +254,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.programs[msg.ProgramIndex].ProgramSuccess = msg.ProgramSuccess
 		m.programs[msg.ProgramIndex].ProgramFinalMessage = msg.ProgramOutput
 		return m, nil
+
+	case process.MoreOutput:
+		if m.outputProgramId == msg.ProgramIndex {
+			m.message = m.programs[m.outputProgramId].ProgramFinalMessage + "\n"
+			stdOut := ""
+			for s := range m.programs[m.outputProgramId].ProgramOutput.Iter() {
+				prefix := "  "
+				if s.Typ == circular_buffer.StdErr {
+					prefix = errorStyle.Render("E:")
+				}
+				stdOut += wrap.String(prefix+" "+s.Line+"\n", m.outViewport.Width)
+			}
+			m.outViewport.SetContent(stdOut)
+		}
 
 	// Is it a key press?
 	case tea.KeyMsg:
@@ -292,6 +304,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.programs[index].ProgramRunning = false
 						m.programs[index].ProgramSuccess = false
 						m.message = fmt.Sprintf("Starting program %d got error: %v\nOutput: %s\n", programNum, err, m.message)
+						debug.DumpStringToDebugListener(fmt.Sprintf("Got error sending start/stop to program %d\n", programNum))
 					}
 				} else if m.programs[index].ViewOutputChar == ch {
 					showingOutputRow = index
@@ -312,6 +325,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				for index := range m.programs {
 					m.programs[index].ShowingOutputNow = index == showingOutputRow
 				}
+				m.outputProgramId = showingOutputRow
 			}
 		}
 	}
