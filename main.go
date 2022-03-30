@@ -221,7 +221,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.programs[index].ProgramIndex = index
 			m.programs[index].StartStopChar = string(startStop)
 			m.programs[index].ViewOutputChar = string(view)
-			m.programs[index].ProgramOutput = circular_buffer.MakeCircularBuffer(100)
+			m.programs[index].NotificationChan = make(chan bool, 1)
+			m.programs[index].ProgramOutput = circular_buffer.MakeCircularBuffer(100, m.programs[index].NotificationChan)
 			m.programs[index].ProgramFinalMessage = "Program not run yet."
 			startStop += 1
 			view += 1

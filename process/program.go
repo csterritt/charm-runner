@@ -25,8 +25,7 @@ type ProgramState struct {
 	StartStopChar       string
 	ViewOutputChar      string
 	ShowingOutputNow    bool
-	OutputLineCount     int
-	CountMutex          sync.Mutex
+	NotificationChan    chan bool
 	Process             exec.Cmd
 }
 
@@ -53,9 +52,6 @@ func startProgram(programState *ProgramState, p *tea.Program) {
 		if err != nil {
 			msg := "Can't create StdoutPipe: " + err.Error()
 			programState.ProgramOutput.AddStderrString(msg)
-			programState.CountMutex.Lock()
-			programState.OutputLineCount += 1
-			programState.CountMutex.Unlock()
 			debug.DumpStringToDebugListener(msg)
 			return
 		}
@@ -82,9 +78,6 @@ func startProgram(programState *ProgramState, p *tea.Program) {
 		if err != nil {
 			msg := "Can't create StderrPipe: " + err.Error()
 			programState.ProgramOutput.AddStderrString(msg)
-			programState.CountMutex.Lock()
-			programState.OutputLineCount += 1
-			programState.CountMutex.Unlock()
 			debug.DumpStringToDebugListener(msg)
 		}
 
@@ -108,19 +101,34 @@ func startProgram(programState *ProgramState, p *tea.Program) {
 		go func(wg *sync.WaitGroup) {
 			defer wg.Done()
 
-			lastCount := 0
-			for len(timerStopChan) == 0 {
-				time.Sleep(100 * time.Millisecond)
-				programState.CountMutex.Lock()
-				updated := programState.OutputLineCount != lastCount
-				lastCount = programState.OutputLineCount
-				programState.CountMutex.Unlock()
+			nextMessageTimer := time.NewTimer(100 * time.Millisecond)
+			lineCount := 0
+			previousLineCount := 0
+			done := false
+			for !done {
+				select {
+				case _, isOpen := <-programState.NotificationChan:
+					if !isOpen {
+						done = true
+					}
+					lineCount += 1
 
-				if updated {
-					p.Send(MoreOutput{ProgramIndex: programState.ProgramIndex})
+				case <-nextMessageTimer.C:
+					if lineCount > previousLineCount {
+						p.Send(MoreOutput{ProgramIndex: programState.ProgramIndex})
+						previousLineCount = lineCount
+					}
+					nextMessageTimer.Reset(100 * time.Millisecond)
+
+				case <-timerStopChan:
+					done = true
 				}
 			}
+			nextMessageTimer.Stop()
+
+			p.Send(MoreOutput{ProgramIndex: programState.ProgramIndex})
 		}(&wg)
+
 		wg.Add(1)
 
 		err = runCommand.Start()
@@ -146,9 +154,6 @@ func startProgram(programState *ProgramState, p *tea.Program) {
 					}
 				} else {
 					programState.ProgramOutput.AddStdoutString(res)
-					programState.CountMutex.Lock()
-					programState.OutputLineCount += 1
-					programState.CountMutex.Unlock()
 				}
 
 			case res, isOpen := <-stdErrChan:
@@ -158,9 +163,6 @@ func startProgram(programState *ProgramState, p *tea.Program) {
 					}
 				} else {
 					programState.ProgramOutput.AddStderrString(res)
-					programState.CountMutex.Lock()
-					programState.OutputLineCount += 1
-					programState.CountMutex.Unlock()
 				}
 
 			case <-stdOutDone:

@@ -15,19 +15,21 @@ type StringWithSource struct {
 }
 
 type CircularBuffer struct {
-	max      int
-	num      int
-	nextSlot int
-	strings  []StringWithSource
-	lock     sync.Mutex
+	max              int
+	num              int
+	nextSlot         int
+	strings          []StringWithSource
+	notificationChan chan bool
+	lock             sync.Mutex
 }
 
-func MakeCircularBuffer(size int) CircularBuffer {
+func MakeCircularBuffer(size int, notificationChan chan bool) CircularBuffer {
 	return CircularBuffer{
-		max:      size,
-		num:      0,
-		nextSlot: 0,
-		strings:  make([]StringWithSource, size),
+		max:              size,
+		num:              0,
+		nextSlot:         0,
+		strings:          make([]StringWithSource, size),
+		notificationChan: notificationChan,
 	}
 }
 
@@ -48,6 +50,8 @@ func (cb *CircularBuffer) AddStdoutString(s string) {
 		cb.strings[cb.nextSlot].Typ = StdOut
 		cb.nextSlot = (cb.nextSlot + 1) % cb.max
 	}
+
+	cb.notificationChan <- true
 }
 
 func (cb *CircularBuffer) AddStderrString(s string) {
@@ -67,6 +71,8 @@ func (cb *CircularBuffer) AddStderrString(s string) {
 		cb.strings[cb.nextSlot].Typ = StdErr
 		cb.nextSlot = (cb.nextSlot + 1) % cb.max
 	}
+
+	cb.notificationChan <- true
 }
 
 func (cb *CircularBuffer) Iter() <-chan StringWithSource {
